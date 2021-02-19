@@ -41,6 +41,7 @@ names(df) <- gsub(" ", "_", names(df))
 ## Setting up right column classes
 # Date and time
 df$date <- lubridate::dmy(df$date)
+df$time <- lubridate::hms(df$time)
 df$time <- strptime(df$time, format="%T") # %H:%M:%S
 df <- df %>% dplyr::rename(hour = time)
 
@@ -81,18 +82,14 @@ df <- df %>%
 
 ## Create a column indicating if the seabird count was complete (10 min) or not
 # 'Period' objects as "time" are measured in seconds, so 10 min = 600 sec.
-test <- df %>% 
-  dplyr::group_by(id) %>% 
-  dplyr::mutate(complete_count = ifelse(
-    (hour[home_screen=='Seabird END']-hour[home_screen=='Seabird START']) >= 600), "yes", "no")
 
 test1 <- df %>% 
   dplyr::select(id, hour, home_screen) %>% 
   dplyr::filter(home_screen == "Seabird START" | home_screen == "Seabird END") %>% 
-  tidyr::pivot_wider(names_from = home_screen, values_from = hour) %>% 
+  tidyr::pivot_wider(names_from = home_screen, values_from = hour, values_fn = list) %>% 
   rename(seabird_start = "Seabird START", 
          seabird_end = "Seabird END") %>% 
-  mutate(seabird_start = unlist(seabird_start),
-         seabird_end = unlist(seabird_end)) 
-  dplyr::mutate(time_diff = difftime(seabird_end - seabird_start, units = "secs"))
+  tidyr::unnest(cols = c(seabird_start, seabird_end)) %>% 
+  dplyr::mutate(time_diff = seabird_end - seabird_start) ## %>% 
+##  dplyr::mutate(complete_count = ifelse(time_diff >= 10, "yes", "no"))
 
