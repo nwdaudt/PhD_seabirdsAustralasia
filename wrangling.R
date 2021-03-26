@@ -13,7 +13,7 @@ rm(list = ls())
 
 ## Libraries ####
 library(plyr)
-library(reshape2)
+# library(reshape2)
 library(tidyverse)
 # library(mapview)
 # library(sf)
@@ -43,7 +43,7 @@ names(df_FarOut) <- gsub(" ", "_", names(df_FarOut))
 # Date and time
 df_FarOut$date <- lubridate::dmy(df_FarOut$date)
 df_FarOut$time <- lubridate::hms(df_FarOut$time)
-df_FarOut$time <- strptime(df_FarOut$time, format="%T") # %H:%M:%S
+df_FarOut$time <- strptime(df_FarOut$time, format = "%T") # %H:%M:%S
 df_FarOut <- df_FarOut %>% dplyr::rename(hour = time)
 
 # Factor
@@ -97,10 +97,10 @@ test1 <- df_FarOut %>%
   dplyr::mutate(time_diff = seabird_end - seabird_start) ## %>% 
 ##  dplyr::mutate(complete_count = ifelse(time_diff >= 10, "yes", "no"))
 
-## MUNIDA ####
+## DATA Munida ####
 
 
-## Australia ####
+## DATA Australia ####
 
 ####
 ## 08jan2016 - 24jan2021
@@ -109,41 +109,99 @@ test1 <- df_FarOut %>%
 df_Australia <- readr::read_csv("./raw_data/australia/ASG_2016_2021.csv")
 # original row number 22,911
 
-# Clean missing values in species ID and geographic coordinates
+## Set up right column classes, and create some useful ones
+df_Australia$year <- lubridate::year(df_Australia$date)
+df_Australia$month <- lubridate::month(df_Australia$date)
+df_Australia <- df_Australia %>% 
+  dplyr::mutate(season = ifelse(month == 12 | month == 1 | month == 2, "summer",
+                         ifelse(month == 3 | month == 4 | month == 5, "autumn",
+                         ifelse(month == 6 | month == 7 | month == 8, "winter", "spring"))))
+
+# as Factor
+factor_cols <- c("observer", "voyage", "ship_activity", "sea_state", "windforce", 
+                 "cloud_cover", "cloud_cover_okta", "precipitation", "visibility", 
+                 "sun_glare", "speciesid", "wov_code")
+
+df_Australia[factor_cols] <- lapply(df_Australia[factor_cols], as.factor)
+
+# as Numeric
+numeric_cols <- c("latitude", "longitude", "ship_course", "ship_speed", "depth", 
+                  "salinity", "sea_temperature", "wind_direction", "air_pressure", 
+                  "air_temperature", 
+                  "total_ct", "feeding_ct", "sitting_on_water_ct", "sitting_on_ice_ct", 
+                  "sitting_on_ship_ct", "in_hand_ct", "flying_past_ct", 
+                  "accompanying_ct", "following_wake_ct")
+
+df_Australia[numeric_cols] <- lapply(df_Australia[numeric_cols], as.numeric)
+
+# Clean some empty columns, columns with no interest for analysis, 
+# and missing values in species ID and geographic coordinates
 df_Australia <- 
   df_Australia %>% 
+  dplyr::select(- c(observer, voyage, ship_heading, 
+                    sitting_on_ice_ct, in_hand_ct, bird_direction)) %>% 
   dplyr::filter(latitude != 0 &
                 longitude != 0) %>%                             # 22,611
   dplyr::filter(!grepl("null", species, ignore.case = TRUE) &   # 22,339
                 !is.na(wov_code) &                              # 22,309
                 !is.na(speciesid))                              # 22,308
 
-plyr::count(is.na(df_Australia$total_ct))
-test <- 
+# Replace missing values in 'total_ct' column, with the sum of 
+# other counting columns
+# plyr::count(is.na(df_Australia$total_ct))
+
+df_Australia <- 
   df_Australia %>% 
-  dplyr::mutate(total_ct = ifelse(total_ct == sum(feeding_ct + sitting_on_water_ct + 
-                                         flying_past_ct + accompanying_ct + 
-                                         following_wake_ct, na.rm = TRUE), 
-                       total_ct, 
-                       sum(feeding_ct + sitting_on_water_ct + 
-                             flying_past_ct + accompanying_ct + 
-                             following_wake_ct, na.rm = TRUE)))
+  dplyr::mutate(total_ct = matrixStats::rowSums2(as.matrix(.[, c(
+    "feeding_ct", "sitting_on_water_ct", "flying_past_ct", "accompanying_ct", 
+                                                   "following_wake_ct")]), na.rm = TRUE))
+
+# Check
+# plyr::count(is.na(df_Australia$total_ct))
+
+## Note: I did not considered records from birds on the ship (col = "sitting_on_ship_ct")
+
+# Exclude these rows -- they mean all columns were "NA" or "0"
+# plyr::count(df_Australia$total_ct == 0)
+
+df_Australia <- 
+  df_Australia %>% 
+  dplyr::filter(total_ct != 0) # 21,140
+
+## Create an ID number for sample units
+
+dplyr::relocate(stretch, .before = beach) 
+dplyr::arrange(date)
+
+## Quick Histogram of counts
+hist(df_Australia$total_ct, breaks = 500)
+hist(log(df_Australia$total_ct), breaks = 500)
 
 ## Quick plot
 df_Australia_spatial <- 
   df_Australia %>% 
-  sf::st_as_sf(coords = c("longitude","latitude"), crs = 4326)
+  dplyr::mutate(longitude1 = longitude,
+                latitude1 = latitude) %>% 
+  sf::st_as_sf(coords = c("longitude1", "latitude1"), crs = 4326)
 
-# mapview::mapview(df_Australia_spatial)
+# mapview::mapview(df_Australia_spatial, zcol = "year")
+# mapview::mapview(df_Australia_spatial, zcol = "season")
 
-## Create grid for analysis
-# 1 x 1 degree
+# ------ Create grid for analysis ----------------------------------------------
+## 1 x 1 degree -- That is probably too fine-scale for the study aim
 grid_AUS_1 <- 
   sf::st_make_grid(df_Australia_spatial, cellsize = c(1, 1))
 
-# 2 x 2 degree
+# mapview::mapview(df_Australia_spatial) + grid_AUS_1
+
+## 2 x 2 degree -- Looks great...
 grid_AUS_2 <- 
   sf::st_make_grid(df_Australia_spatial, cellsize = c(2, 2))
 
-# mapview::mapview(df_Australia_spatial) + grid_AUS_1
+sf::st_write(grid_AUS_2, "./raw_data/australia/grid_AUS20162019_2.shp")
+
 # mapview::mapview(df_Australia_spatial) + grid_AUS_2
+# ------------------------------------------------------------------------------
+
+## Abund data.frame (just birds)
+readr::write_csv()
