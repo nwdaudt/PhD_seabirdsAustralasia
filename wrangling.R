@@ -13,10 +13,9 @@ rm(list = ls())
 
 ## Libraries ####
 library(plyr)
-# library(reshape2)
 library(tidyverse)
-# library(mapview)
-# library(sf)
+library(mapview)
+library(sf)
 
 ## DATA Far Out Research Collective (2019 -) ####
 df_FarOut <-
@@ -43,8 +42,8 @@ names(df_FarOut) <- gsub(" ", "_", names(df_FarOut))
 # Date and time
 df_FarOut$date <- lubridate::dmy(df_FarOut$date)
 df_FarOut$time <- lubridate::hms(df_FarOut$time)
-df_FarOut$time <- strptime(df_FarOut$time, format = "%T") # %H:%M:%S
 df_FarOut <- df_FarOut %>% dplyr::rename(hour = time)
+# df_FarOut$time <- strptime(df_FarOut$time, format = "%T") # %H:%M:%S
 
 # Factor
 factor_cols <- c("swell", "bf", "home_screen", "seabirds", "albatross", 
@@ -71,7 +70,7 @@ df_FarOut <-
                 home_screen == "Seabird START" | 
                 home_screen == "Seabird END" | 
                 home_screen == "Seabird count") %>% 
-  droplevels()
+  droplevels(.)
 
 ## Create an ID number for each seabird count, 
 ## which is between (including) every 'Seabird START' and 'Seabird END' from
@@ -83,6 +82,62 @@ df_FarOut <-
   dplyr::mutate(id = ifelse(home_screen == "Note" | home_screen == "Conditions", 
                               NA, id)) %>% 
   dplyr::relocate(id, .before = home_screen)
+
+## Delete wrong data inputs (e.g. double 'Seabird START/END', no 'Seabird START/END'...),
+## input (add) new rows (e.g. 'Seabird START/END'), and modify some cells.
+
+## Delete
+df_FarOut <- 
+  df_FarOut %>% 
+  dplyr::filter(!c(id == 108 & date == "2019-11-16" & hour == "8H 8M 30S" & home_screen == "Seabird END"),
+                !c(date == "2019-11-16" & hour == "8H 9M 2S" & home_screen == "Note"),
+                !c(id == 117 & date == "2019-11-16" & hour == "9H 25M 56S" & home_screen == "Seabird END"),
+                !c(id == 140 & date == "2019-11-16" & hour == "11H 27M 48S" & home_screen == "Seabird END"),
+                !c(id == 155 & date == "2019-11-16" & hour == "12H 43M 20S" & home_screen == "Seabird START"),
+                !c(id == 155 & date == "2019-11-16" & hour == "12H 45M 24S" & home_screen == "Seabird count"),
+                !c(id == 155 & date == "2019-11-16" & hour == "12H 46M 21S" & home_screen == "Seabird END"),
+                !c(date == "2019-11-16" & hour == "12H 47M 28S" & home_screen == "Note"),
+                !c(id == 353 & date == "2020-01-27" & hour == "10H 8M 27S" & home_screen == "Seabird START"),
+                !c(id == 577 & date == "2020-01-28" & hour == "16H 28M 3S" & home_screen == "Seabird START"),
+                !c(id == 823 & date == "2020-02-02" & hour == "8H 44M 37S" & home_screen == "Seabird START"),
+                !c(date == "2020-02-02" & hour == "8H 45M 24S" & home_screen == "Note"),
+                !c(id == 1773 & date == "2021-01-22" & hour == "9H 1M 23S" & home_screen == "Seabird START"),
+                !c(id == 1874 & date == "2021-01-23" & hour == "12H 39M 2S" & home_screen == "Seabird START"),
+                !c(id == 1874 & date == "2021-01-23" & hour == "12H 40M 19S" & home_screen == "Seabird END"),
+                !c(date == "2021-01-23" & hour == "12H 40M 48S" & home_screen == "Note"),
+                !c(id == 1889 & date == "2021-01-23" & hour == "13H 22M 6S" & home_screen == "Seabird START"),
+                !c(date == "2021-01-23" & hour == "13H 25M 5S" & home_screen == "Note"))
+
+## Input 
+df_input <- data.frame(
+  date = lubridate::ymd(c("2019-11-16", "2020-02-03", "2020-02-03", 
+                          "2021-01-12", "2021-01-15", "2021-01-15", 
+                          "2021-01-15", "2021-01-16", "2021-01-16", 
+                          "2021-01-22")),
+  hour = lubridate::hms(c("9H 8M 56S", "8H 49M 53S", "9H 36M 13S", 
+                          "10H 21M 10S", "12H 41M 48S", "13H 15M 28S", 
+                          "17H 32M 14S", "10H 7M 27S", "10H 55M 41S", 
+                          "12H 54M 6S")),
+  lat = as.numeric(c(-34.10391, -35.07099, -35.03732, 
+                     -34.42122, -34.24153, "NA", 
+                     -34.43571, -34.26202, -34.31040, 
+                     -34.90750)),
+  lon = as.numeric(c(174.1118, 175.1295, 175.1657,
+                      173.3327, 173.3656, "NA", 
+                      173.2771, 174.1062, 174.1172, 
+                      175.1360)),
+  home_screen = as.factor(c("Seabird START", "Seabird END", "Seabird END",
+                            "Seabird END", "Seabird END", "Seabird START", 
+                            "Seabird END", "Seabird START", "Seabird END", 
+                            "Seabird START"))
+)
+
+df_FarOut <- 
+  dplyr::bind_rows(df_input, df_FarOut) %>% 
+  dplyr::arrange(date, hour)
+
+## Modify
+
 
 ## Create a column indicating if the seabird count was complete (10 min) or not
 # 'Period' objects as "time" are measured in seconds, so 10 min = 600 sec.
@@ -104,6 +159,7 @@ test1 <- df_FarOut %>%
 
 ####
 ## 08jan2016 - 24jan2021
+## This is a **presence-only** dataset
 ####
 
 df_Australia <- readr::read_csv("./raw_data/australia/ASG_2016_2021.csv")
@@ -153,8 +209,8 @@ df_Australia <-
 df_Australia <- 
   df_Australia %>% 
   dplyr::mutate(total_ct = matrixStats::rowSums2(as.matrix(.[, c(
-    "feeding_ct", "sitting_on_water_ct", "flying_past_ct", "accompanying_ct", 
-                                                   "following_wake_ct")]), na.rm = TRUE))
+    "feeding_ct", "sitting_on_water_ct", "flying_past_ct", 
+    "accompanying_ct", "following_wake_ct")]), na.rm = TRUE))
 
 # Check
 # plyr::count(is.na(df_Australia$total_ct))
@@ -166,12 +222,17 @@ df_Australia <-
 
 df_Australia <- 
   df_Australia %>% 
-  dplyr::filter(total_ct != 0) # 21,140
+  dplyr::filter(total_ct != 0) %>%    # 21,140
+  droplevels(.)
 
 ## Create an ID number for sample units
-
-dplyr::relocate(stretch, .before = beach) 
-dplyr::arrange(date)
+df_Australia <- 
+  df_Australia %>% 
+  dplyr::group_by(date) %>% 
+  dplyr::mutate(ID = dplyr::cur_group_id()) %>%    # 13,333 unique IDs
+  dplyr::relocate(ID, .before = everything()) %>% 
+  dplyr::arrange(date) %>% 
+  dplyr::ungroup()
 
 ## Quick Histogram of counts
 hist(df_Australia$total_ct, breaks = 500)
@@ -187,21 +248,35 @@ df_Australia_spatial <-
 # mapview::mapview(df_Australia_spatial, zcol = "year")
 # mapview::mapview(df_Australia_spatial, zcol = "season")
 
-# ------ Create grid for analysis ----------------------------------------------
+# ************* Create grid for analysis ***************************************
 ## 1 x 1 degree -- That is probably too fine-scale for the study aim
 grid_AUS_1 <- 
   sf::st_make_grid(df_Australia_spatial, cellsize = c(1, 1))
 
 # mapview::mapview(df_Australia_spatial) + grid_AUS_1
 
-## 2 x 2 degree -- Looks great...
+## 2 x 2 degree -- Looks good
 grid_AUS_2 <- 
   sf::st_make_grid(df_Australia_spatial, cellsize = c(2, 2))
 
-sf::st_write(grid_AUS_2, "./raw_data/australia/grid_AUS20162019_2.shp")
-
 # mapview::mapview(df_Australia_spatial) + grid_AUS_2
-# ------------------------------------------------------------------------------
+
+sf::st_write(grid_AUS_2, "./data/australia/grid_20162021_2.shp")
+# ******************************************************************************
 
 ## Abund data.frame (just birds)
-readr::write_csv()
+readr::write_csv(df_Australia, "./data/australia/asg20162021_birds_abund.csv")
+
+## Occ data.frame (just birds) - just birds identified to **species level**
+df_Australia_occ <- 
+  df_Australia %>% 
+  dplyr::filter(!stringr::str_detect(species, "sp.") & 
+                !stringr::str_detect(species, "spp.")) %>% 
+  droplevels(.)
+
+# 18,157 rows
+# 12,466 unique ID
+
+readr::write_csv(df_Australia_occ, "./data/australia/asg20162021_birds_occ.csv")
+
+
