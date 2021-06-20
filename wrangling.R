@@ -4,10 +4,10 @@
 ## Code by Nicholas W Daudt
 ##
 ## sessioninfo::session_info()
-## R version 3.6.3 (2020-02-29)
+## R version 4.0.5 (2021-03-31)
 ## Platform: x86_64-pc-linux-gnu (64-bit)
-## Running under: Ubuntu 20.04.1 LTS
-################################################################################
+## Running under: Ubuntu 20.04.2 LTS
+## *****************************************************************************
 
 rm(list = ls())
 
@@ -16,6 +16,182 @@ library(plyr)
 library(tidyverse)
 library(mapview)
 library(sf)
+library(rnaturalearth)
+# library(marmap)
+
+## Spatial features ####
+
+# ****************** Countries *************************************************
+## New Zealand
+nz_sf <- 
+  rnaturalearth::ne_countries(scale = "medium", 
+                              country = "new zealand", 
+                              returnclass = "sf")
+## Australia
+aus_sf <- 
+  rnaturalearth::ne_countries(scale = "medium", 
+                              country = "australia", 
+                              returnclass = "sf")
+# ******************************************************************************
+
+# ***************** Transects **************************************************
+## Far Out Research Collective, Northland NZ
+
+# trial 1 Guzman's ####
+# https://gis.stackexchange.com/questions/270725/r-sf-package-points-to-multiple-lines-with-st-cast
+df_FarOut_transects <- data.frame(
+  lat = c(-34.643, -34.399, -34.554, -34.305, -34.461, -34.214, -34.362),
+  lon = c(173.567, 173.674, 173.413, 173.520, 173.258, 173.378, 173.113)
+)
+
+multipoints <- sf::st_multipoint(as.matrix(df_FarOut_transects))
+points <- sf::st_cast(sf::st_geometry(multipoints), "POINT")
+
+st_crs(points) <- 4326
+mapview::mapview(points)
+
+# Number of total linestrings to be created
+n <- length(points) - 1
+
+# Build linestrings
+linestrings <- lapply(X = 1:n, FUN = function(x) {
+  
+  pair <- sf::st_combine(c(points[x], points[x + 1]))
+  line <- sf::st_cast(pair, "LINESTRING")
+  return(line)
+})
+
+str(linestrings)
+l1 <- linestrings[[1]]
+st_crs(l1) <- 4326
+str(l1)
+mapview::mapview(l1)
+
+st_crs(linestrings) <- 4326
+
+mapview::mapview(linestrings)
+
+t1 <- linestrings[1] %>% %>% sf::st_as_sf()
+
+# trial 2 'st_segment' Spacedman's ####
+# https://gis.stackexchange.com/questions/312289/r-create-multiple-linestrings-from-multiple-coordinates
+
+st_segment = function(r){st_linestring(t(matrix(unlist(r), 2, 2)))}
+
+df_FarOut_transects1 <- data.frame(
+  lat = c(-34.643, -34.399, -34.554, -34.305, -34.461, -34.214),
+  lon = c(173.567, 173.674, 173.413, 173.520, 173.258, 173.378),
+  
+  lat2 = c(-34.399, -34.554, -34.305, -34.461, -34.214, -34.362),
+  lon2 = c(173.674, 173.413, 173.520, 173.258, 173.378, 173.113)
+)
+
+df_FarOut_transects1$geom <- 
+  sf::st_sfc(sapply(1:nrow(df_FarOut_transects1), 
+                    function(i){st_segment(df_FarOut_transects1[i,])}, simplify=FALSE),
+             crs = 4326)
+
+df_transects1 <- 
+  sf::st_sf(df_FarOut_transects1)
+
+mapview::mapview(df_transects1)
+mapview::mapview(df_FarOut_transects1)
+
+# trial 3 'make_line' HAVB's ####
+# https://gis.stackexchange.com/questions/312289/r-create-multiple-linestrings-from-multiple-coordinates
+
+df_FarOut_tbl <- tibble::tribble(
+  ~lat,   ~lat2,   ~lon,   ~lon2,
+  -34.643,-34.399, 173.567, 173.674,
+  -34.399,-34.554, 173.674, 173.413,
+  -34.554,-34.305, 173.413, 173.520,
+  -34.305,-34.461, 173.520, 173.258,
+  -34.461,-34.214, 173.258, 173.378,
+  -34.214,-34.362, 173.378, 173.113)
+
+
+make_line <- function(lat, lon, lat2, lon2) {
+  st_linestring(matrix(c(lat, lat2, lon, lon2), 2, 2))
+}
+
+df <- 
+  df_FarOut_tbl %>%
+  select(lat, lon, lat2, lon2) %>% 
+  pmap(make_line) %>% 
+  st_as_sfc(crs = 4326) 
+
+df1 <- df[[1]]
+
+mapview::mapview(df)
+
+# trial 4 r-spatial website ####
+# https://r-spatial.github.io/sf/articles/sf3.html
+# Getting and setting coordinate reference systems of sf objects
+
+geom = st_sfc(st_point(c(0,1)), st_point(c(11,12)))
+s = st_sf(a = 15:16, geometry = geom)
+st_crs(s)
+s1 = s
+st_crs(s1) <- 4326
+mapview::mapview(s1)
+# ****************************************************
+
+geom1 <- st_sfc(
+  st_point(c(-34.643, 173.567)),
+  st_point(c(-34.399, 173.674)),
+  st_point(c(-34.554, 173.413)),
+  st_point(c(-34.305, 173.520)),
+  st_point(c(-34.461, 173.258)),
+  st_point(c(-34.214, 173.378)),
+  st_point(c(-34.362, 173.113))
+)
+
+try1 <- st_sf(geometry = geom1)
+
+
+st_crs(try1) <- 4326
+st_crs(geom1) <- 4326
+
+mapview::mapview(geom1)
+# trial 5 obrl_soil's answer ####
+# https://gis.stackexchange.com/questions/312289/r-create-multiple-linestrings-from-multiple-coordinates
+
+df_tbl <- tibble::tribble(
+  ~lat,   ~lat2,   ~lon,   ~lon2,
+  -34.643,-34.399, 173.567, 173.674,
+  -34.399,-34.554, 173.674, 173.413,
+  -34.554,-34.305, 173.413, 173.520,
+  -34.305,-34.461, 173.520, 173.258,
+  -34.461,-34.214, 173.258, 173.378,
+  -34.214,-34.362, 173.378, 173.113)
+
+rows <- split(df_tbl, seq(nrow(df_tbl)))
+lines <- lapply(rows, function(row) {
+  lmat <- matrix(unlist(row[1:4]), ncol = 2, byrow = TRUE)
+  st_linestring(lmat)
+})
+lines <- st_sfc(lines)
+lines_sf <- st_sf('ID' = 1:6, 'geometry' = lines)
+
+mapview::mapview(lines)
+#######
+## Munida transect, off Otago Peninsula, South Island NZ
+
+# ******************************************************************************
+## Base maps ####
+## New Zealand
+nz_base_map <- 
+  ggplot2::ggplot(data = nz_sf) + 
+  ggplot2::geom_sf(color = "black", fill = "lightgrey") + 
+  ggplot2::coord_sf(xlim = c(164, 180), ylim = c(-53, -34)) + 
+  ggplot2::theme_bw()
+
+## Australia
+aus_base_map <- 
+  ggplot2::ggplot(data = aus_sf) + 
+  ggplot2::geom_sf(color = "black", fill = "lightgrey") + 
+  ggplot2::coord_sf(xlim = c(107, 160), ylim = c(-45, -7)) + 
+  ggplot2::theme_bw()
 
 ## DATA Far Out Research Collective (2019 -) ####
 df_FarOut <-
@@ -38,7 +214,7 @@ names(df_FarOut) <- tolower(names(df_FarOut))
 # Replace 'spaces' with 'underscore'
 names(df_FarOut) <- gsub(" ", "_", names(df_FarOut))
 
-## Setting up right column classes
+## Set up right column classes
 # Date and time
 df_FarOut$date <- lubridate::dmy(df_FarOut$date)
 df_FarOut$time <- lubridate::hms(df_FarOut$time)
@@ -56,7 +232,7 @@ df_FarOut[factor_cols] <- lapply(df_FarOut[factor_cols], as.factor)
 numeric_cols <- c("lat", "lon", "count")
 df_FarOut[numeric_cols] <- lapply(df_FarOut[numeric_cols], as.numeric)
 
-## Copying conditions (swell & bf) for the whole 'df'
+## Fill conditions (swell & bf) for the whole 'df'
 df_FarOut <- 
   df_FarOut %>% 
   tidyr::fill(swell, .direction = "updown") %>% 
@@ -72,7 +248,7 @@ df_FarOut <-
                 home_screen == "Seabird count") %>% 
   droplevels(.)
 
-## Create an ID number for each seabird count, 
+## Create an ID number for each seabird count ('id'), 
 ## which is between (including) every 'Seabird START' and 'Seabird END' from
 ## 'home_screen' variable
 df_FarOut <- 
@@ -83,8 +259,10 @@ df_FarOut <-
                               NA, id)) %>% 
   dplyr::relocate(id, .before = home_screen)
 
-## Delete wrong data inputs (e.g. double 'Seabird START/END', no 'Seabird START/END'...),
-## input (add) new rows (e.g. 'Seabird START/END'), and modify some cells.
+## The raw dataset contains some input errors. Next, I fix them --
+
+## Delete wrong data inputs (e.g. double 'Seabird START/END', no 'Seabird START/END'...);
+## input (add) new rows (e.g. 'Seabird START/END'); and modify some cells.
 
 ## Delete
 df_FarOut <- 
@@ -108,7 +286,7 @@ df_FarOut <-
                 !c(id == 1889 & date == "2021-01-23" & hour == "13H 22M 6S" & home_screen == "Seabird START"),
                 !c(date == "2021-01-23" & hour == "13H 25M 5S" & home_screen == "Note"))
 
-## Input 
+## Input
 df_input <- data.frame(
   date = lubridate::ymd(c("2019-11-16", "2020-02-03", "2020-02-03", 
                           "2021-01-12", "2021-01-15", "2021-01-15", 
@@ -139,15 +317,25 @@ df_FarOut <-
 ## Modify
 
 
+## Need to create delete and create the 'id' column again, with data set fixed
+df_FarOut <- 
+  df_FarOut %>% 
+  dplyr::select(- id) %>% 
+  dplyr::mutate(id = ifelse(home_screen == "Seabird START", seq(1:n()), NA)) %>% 
+  tidyr::fill(id) %>% 
+  dplyr::mutate(id = ifelse(home_screen == "Note" | home_screen == "Conditions", 
+                            NA, id)) %>% 
+  dplyr::relocate(id, .before = home_screen)
+
 ## Create a column indicating if the seabird count was complete (10 min) or not
 # 'Period' objects as "time" are measured in seconds, so 10 min = 600 sec.
 
-test1 <- df_FarOut %>% 
+test <- df_FarOut %>% 
   dplyr::select(id, hour, home_screen) %>% 
   dplyr::filter(home_screen == "Seabird START" | home_screen == "Seabird END") %>% 
   tidyr::pivot_wider(names_from = home_screen, values_from = hour, values_fn = list) %>% 
-  rename(seabird_start = "Seabird START", 
-         seabird_end = "Seabird END") %>% 
+  dplyr::rename(seabird_start = "Seabird START", 
+                seabird_end = "Seabird END") %>% 
   tidyr::unnest(cols = c(seabird_start, seabird_end)) %>% 
   dplyr::mutate(time_diff = seabird_end - seabird_start) ## %>% 
 ##  dplyr::mutate(complete_count = ifelse(time_diff >= 10, "yes", "no"))
@@ -155,10 +343,10 @@ test1 <- df_FarOut %>%
 ## DATA Munida ####
 
 
-## DATA Australia ####
+## DATA Australia ASG Jan2016-Jan2021 ####
 
 ####
-## 08jan2016 - 24jan2021
+## 08Jan2016 - 24Jan2021
 ## This is a **presence-only** dataset
 ####
 
@@ -171,7 +359,8 @@ df_Australia$month <- lubridate::month(df_Australia$date)
 df_Australia <- df_Australia %>% 
   dplyr::mutate(season = ifelse(month == 12 | month == 1 | month == 2, "summer",
                          ifelse(month == 3 | month == 4 | month == 5, "autumn",
-                         ifelse(month == 6 | month == 7 | month == 8, "winter", "spring"))))
+                         ifelse(month == 6 | month == 7 | month == 8, "winter", 
+                                "spring"))))
 
 # as Factor
 factor_cols <- c("observer", "voyage", "ship_activity", "sea_state", "windforce", 
@@ -194,7 +383,7 @@ df_Australia[numeric_cols] <- lapply(df_Australia[numeric_cols], as.numeric)
 # and missing values in species ID and geographic coordinates
 df_Australia <- 
   df_Australia %>% 
-  dplyr::select(- c(observer, voyage, ship_heading, 
+  dplyr::select(- c(observer, ship_heading, 
                     sitting_on_ice_ct, in_hand_ct, bird_direction)) %>% 
   dplyr::filter(latitude != 0 &
                 longitude != 0) %>%                             # 22,611
@@ -202,8 +391,28 @@ df_Australia <-
                 !is.na(wov_code) &                              # 22,309
                 !is.na(speciesid))                              # 22,308
 
+## Good data - according to Eric
+df_Australia <- 
+  df_Australia %>% 
+  dplyr::filter(voyage == "fk201228" | #voyage == fk210206 | 
+                  
+                  voyage == "in2016_t02" | voyage == "in2016_v06" | 
+                  
+                  voyage == "in2017_v02" | voyage == "in2017_t01" | 
+                  voyage == "in2017_t02" | 
+                  
+                  voyage == "in2018_c01" | voyage == "in2018_t02" | 
+                  voyage == "in2018_v04" | voyage == "in2018_v06" | 
+                  
+                  voyage == "in2019_t01" | voyage == "in2019_t02" | 
+                  voyage == "in2019_t03" | voyage == "in2019_v04" | 
+                  voyage == "in2019_v07") %>% 
+  droplevels(.)
+
 # Replace missing values in 'total_ct' column, with the sum of 
 # other counting columns
+
+# Check for NAs
 # plyr::count(is.na(df_Australia$total_ct))
 
 df_Australia <- 
@@ -212,12 +421,12 @@ df_Australia <-
     "feeding_ct", "sitting_on_water_ct", "flying_past_ct", 
     "accompanying_ct", "following_wake_ct")]), na.rm = TRUE))
 
-# Check
+# Check for NAs again
 # plyr::count(is.na(df_Australia$total_ct))
 
 ## Note: I did not considered records from birds on the ship (col = "sitting_on_ship_ct")
 
-# Exclude these rows -- they mean all columns were "NA" or "0"
+# Exclude rows summing "0" -- they mean all columns were "NA" or "0"
 # plyr::count(df_Australia$total_ct == 0)
 
 df_Australia <- 
@@ -234,49 +443,56 @@ df_Australia <-
   dplyr::arrange(date) %>% 
   dplyr::ungroup()
 
-## Quick Histogram of counts
-hist(df_Australia$total_ct, breaks = 500)
-hist(log(df_Australia$total_ct), breaks = 500)
-
-## Quick plot
-df_Australia_spatial <- 
-  df_Australia %>% 
+## Quick plot to check
+df_Australia_spatial <-
+  df_Australia %>%
   dplyr::mutate(longitude1 = longitude,
-                latitude1 = latitude) %>% 
+                latitude1 = latitude) %>%
   sf::st_as_sf(coords = c("longitude1", "latitude1"), crs = 4326)
 
+mapview::mapview(df_Australia_spatial)
 # mapview::mapview(df_Australia_spatial, zcol = "year")
 # mapview::mapview(df_Australia_spatial, zcol = "season")
 
-# ************* Create grid for analysis ***************************************
-## 1 x 1 degree -- That is probably too fine-scale for the study aim
+# ************* Create grid for analysis MS_1***********************************
+## 0.5 x 0.5 degree
+# grid_AUS_0.5 <- 
+#   sf::st_make_grid(df_Australia_spatial, cellsize = c(0.5, 0.5), crs = 4326)
+# 
+# mapview::mapview(df_Australia_spatial) + grid_AUS_0.5
+# sf::st_write(grid_AUS_0.5, "./data/ms1_australia_RCPs/grid_asg20162021_0.5.gpkg")
+
+## 1 x 1 degree -- this is the one
 grid_AUS_1 <- 
-  sf::st_make_grid(df_Australia_spatial, cellsize = c(1, 1))
+  sf::st_make_grid(df_Australia_spatial, cellsize = c(1, 1), crs = 4326)
 
 # mapview::mapview(df_Australia_spatial) + grid_AUS_1
+sf::st_write(grid_AUS_1, "./data/ms1_australia_RCPs/grid_asg20162021_1.gpkg")
 
-## 2 x 2 degree -- Looks good
-grid_AUS_2 <- 
-  sf::st_make_grid(df_Australia_spatial, cellsize = c(2, 2))
-
+## 2 x 2 degree
+# grid_AUS_2 <- 
+#   sf::st_make_grid(df_Australia_spatial, cellsize = c(2, 2), crs = 4326)
+# 
 # mapview::mapview(df_Australia_spatial) + grid_AUS_2
+# sf::st_write(grid_AUS_2, "./data/ms1_australia_RCPs/grid_asg20162021_2.gpkg")
 
-sf::st_write(grid_AUS_2, "./data/australia/grid_20162021_2.shp")
 # ******************************************************************************
 
-## Abund data.frame (just birds)
-readr::write_csv(df_Australia, "./data/australia/asg20162021_birds_abund.csv")
+# ******************** Save data.frames ****************************************
+## Abundance data set
+readr::write_csv(df_Australia, "./data/ms1_australia_RCPs/birds_abund_asg20162021.csv")
 
-## Occ data.frame (just birds) - just birds identified to **species level**
+## Occurrence data set - only birds identified to **species level**
 df_Australia_occ <- 
   df_Australia %>% 
   dplyr::filter(!stringr::str_detect(species, "sp.") & 
                 !stringr::str_detect(species, "spp.")) %>% 
   droplevels(.)
 
-# 18,157 rows
-# 12,466 unique ID
+readr::write_csv(df_Australia_occ, "./data/ms1_australia_RCPs/birds_occ_asg20162021.csv")
 
-readr::write_csv(df_Australia_occ, "./data/australia/asg20162021_birds_occ.csv")
+## Occurrence data set: 18,157 rows, 12,466 unique ID
 
+## *****************************************************************************
 
+#### ... ####
